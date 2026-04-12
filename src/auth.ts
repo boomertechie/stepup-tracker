@@ -1,14 +1,18 @@
 import { chromium, type BrowserContext, type Page } from "playwright-core";
 import { existsSync } from "fs";
 import { resolve } from "path";
+import { homedir } from "os";
 import { createInterface } from "readline";
 import type { TrackerConfig } from "./types";
 
 const PORTAL_HOST = "apply.stepupforstudents.org";
 const PROFILE_DIR = resolve(
   process.env.STEPUP_PROFILE_DIR ||
-  resolve(process.env.HOME || "", ".stepup-tracker/browser-profile")
+  resolve(homedir(), ".stepup-tracker/browser-profile")
 );
+const CHROME_ARGS = process.platform === "linux"
+  ? ["--no-sandbox", "--disable-gpu"]
+  : ["--disable-gpu"];
 
 /** Function that provides a prompt response (stdin or web UI) */
 export type PromptFn = (message: string, hidden?: boolean) => Promise<string>;
@@ -43,7 +47,7 @@ export async function launchAndLogin(
   const context = await chromium.launchPersistentContext(PROFILE_DIR, {
     headless: config.headless,
     executablePath: config.browser_path,
-    args: ["--no-sandbox", "--disable-gpu"],
+    args: CHROME_ARGS,
     viewport: { width: 1280, height: 900 },
     userAgent:
       "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",

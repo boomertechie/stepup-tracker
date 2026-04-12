@@ -39,12 +39,13 @@ import {
   exportMarkdown,
 } from "./src/report";
 import { startServer } from "./src/web";
+import { findChrome } from "./src/chrome";
 import type { TrackerConfig } from "./src/types";
 
-const STEPUP_DIR = resolve(
-  process.env.STEPUP_DATA_DIR ||
-  resolve(process.env.HOME || "", ".stepup-tracker")
-);
+import { homedir } from "os";
+
+const HOME = homedir();
+const STEPUP_DIR = resolve(process.env.STEPUP_DATA_DIR || resolve(HOME, ".stepup-tracker"));
 const CONFIG_PATH = resolve(STEPUP_DIR, "config.json");
 
 function loadConfig(): TrackerConfig {
@@ -60,33 +61,6 @@ function loadConfig(): TrackerConfig {
   };
 }
 
-function findChrome(): string {
-  const candidates = [
-    process.env.CHROME_PATH,
-    "/usr/bin/google-chrome-stable",
-    "/usr/bin/google-chrome",
-    "/usr/bin/chromium-browser",
-    "/usr/bin/chromium",
-  ].filter(Boolean) as string[];
-  for (const p of candidates) {
-    if (existsSync(p)) return p;
-  }
-  // Search puppeteer/playwright cache
-  for (const cacheDir of ["puppeteer/chrome", "ms-playwright/chromium-"]) {
-    const base = resolve(process.env.HOME || "", ".cache", cacheDir.split("/")[0], cacheDir.split("/")[1] || "");
-    if (existsSync(base)) {
-      const { readdirSync } = require("fs");
-      const dirs = readdirSync(base).sort().reverse();
-      for (const d of dirs) {
-        for (const sub of ["chrome-linux64/chrome", "chrome-linux/chrome", "chrome"]) {
-          const chrome = resolve(base, d, sub);
-          if (existsSync(chrome)) return chrome;
-        }
-      }
-    }
-  }
-  throw new Error("No Chrome/Chromium found. Install Chromium or set CHROME_PATH env var.");
-}
 
 function showHelp(): void {
   console.log(`

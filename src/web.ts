@@ -1,29 +1,10 @@
-import { readFileSync, existsSync, readdirSync, writeFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
+import { homedir } from "os";
 import { extract } from "./extractor";
+import { findChrome } from "./chrome";
 import { loadTransactions, saveTransactions, mergeTransactions, loadBalances, saveBalances, addBalanceSnapshot } from "./storage";
 import type { TrackerConfig, TransactionStore, BalanceStore, Transaction, LineItem } from "./types";
-
-function findChromePath(): string {
-  const candidates = [
-    process.env.CHROME_PATH,
-    "/usr/bin/google-chrome-stable",
-    "/usr/bin/google-chrome",
-    "/usr/bin/chromium-browser",
-    "/usr/bin/chromium",
-  ].filter(Boolean) as string[];
-  for (const p of candidates) { if (existsSync(p)) return p; }
-  // Search puppeteer cache
-  const puppeteerBase = resolve(process.env.HOME || "", ".cache/puppeteer/chrome");
-  if (existsSync(puppeteerBase)) {
-    const dirs = readdirSync(puppeteerBase).sort().reverse();
-    for (const d of dirs) {
-      const chrome = resolve(puppeteerBase, d, "chrome-linux64/chrome");
-      if (existsSync(chrome)) return chrome;
-    }
-  }
-  return "chromium";
-}
 
 function loadJSON<T>(path: string, fallback: T): T {
   if (!existsSync(path)) return fallback;
@@ -43,13 +24,12 @@ let job: JobState = { phase: "idle" };
 const COOLDOWN_MS = 5 * 60 * 1000; // 5 minute cooldown
 
 export function startServer(txPath: string, balPath: string, port: number): void {
-  const PAI_DIR = process.env.PAI_DIR || resolve(process.env.HOME || "", ".claude");
-  const DATA_DIR = resolve(PAI_DIR, "context/family/step-up-scholarship/data");
-  const config: TrackerConfig = loadJSON(resolve(DATA_DIR, "config.json"), {
+  const STEPUP_DIR = resolve(process.env.STEPUP_DATA_DIR || resolve(homedir(), ".stepup-tracker"));
+  const config: TrackerConfig = loadJSON(resolve(STEPUP_DIR, "config.json"), {
     portal_url: "https://apply.stepupforstudents.org",
-    auth_state_path: resolve(PAI_DIR, "playwright-data/stepup-auth.json"),
-    browser_path: findChromePath(),
-    data_dir: DATA_DIR,
+    auth_state_path: resolve(STEPUP_DIR, "auth-state.json"),
+    browser_path: findChrome(),
+    data_dir: STEPUP_DIR,
     headless: true,
   });
 

@@ -14,23 +14,28 @@ A local tool for tracking Florida **Step Up for Students** scholarship reimburse
 
 ## Requirements
 
-- [Bun](https://bun.sh) (JavaScript runtime)
-- Chromium or Google Chrome installed
+- [Bun](https://bun.sh) (JavaScript runtime — works on Linux, macOS, and Windows)
+- Google Chrome or Chromium installed (auto-detected on all platforms)
 - A Step Up for Students EMA portal account
 
 ## Quick Start
 
+### Linux / macOS
+
 ```bash
-# Clone the repo
+# Install Bun (if not already installed)
+curl -fsSL https://bun.sh/install | bash
+
+# Clone and set up
 git clone https://github.com/boomertechie/stepup-tracker.git
 cd stepup-tracker
-
-# Install dependencies
 bun install
 
-# Set up your credentials
+# Set up credentials
 cp .env.example .env
 # Edit .env with your EMA username and password
+# Note: if your password has special characters (like !), use single quotes:
+#   STEPUP_PASSWORD='my-password-with-!'
 
 # First run — logs in, enters MFA code, pulls all data
 bun run index.ts extract
@@ -39,6 +44,28 @@ bun run index.ts extract
 bun run index.ts serve
 # Open http://localhost:3210
 ```
+
+### Windows
+
+```powershell
+# Install Bun
+powershell -c "irm bun.sh/install.ps1 | iex"
+
+# Clone and set up
+git clone https://github.com/boomertechie/stepup-tracker.git
+cd stepup-tracker
+bun install
+
+# Set up credentials
+copy .env.example .env
+# Edit .env with Notepad or your editor
+
+# Run
+bun run index.ts extract
+bun run index.ts serve
+```
+
+Chrome is auto-detected from standard install locations on all platforms. If detection fails, set `CHROME_PATH` in your `.env` file.
 
 ## Commands
 
@@ -103,7 +130,9 @@ The "Update Data" button triggers a fresh extraction from the portal. You'll ent
 
 ## Running as a Service
 
-To keep the dashboard running persistently, create a systemd service:
+To keep the dashboard running persistently:
+
+### Linux (systemd)
 
 ```ini
 # /etc/systemd/system/stepup-tracker.service
@@ -116,7 +145,7 @@ Type=simple
 User=your-username
 WorkingDirectory=/path/to/stepup-tracker
 EnvironmentFile=/path/to/stepup-tracker/.env
-ExecStart=/path/to/.bun/bin/bun run index.ts serve 3210
+ExecStart=/home/your-username/.bun/bin/bun run index.ts serve 3210
 Restart=on-failure
 RestartSec=5
 
@@ -129,6 +158,24 @@ sudo cp stepup-tracker.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now stepup-tracker
 ```
+
+### macOS (launchd)
+
+```bash
+# Quick background start
+nohup bun run index.ts serve 3210 > /tmp/stepup-tracker.log 2>&1 &
+```
+
+Or create a `~/Library/LaunchAgents/com.stepup-tracker.plist` for auto-start at login.
+
+### Windows
+
+```powershell
+# Quick background start (PowerShell)
+Start-Process -NoNewWindow bun -ArgumentList "run index.ts serve 3210"
+```
+
+Or use [NSSM](https://nssm.cc/) to install as a Windows service.
 
 ## Technical Notes
 
