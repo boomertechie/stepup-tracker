@@ -1,0 +1,15 @@
+{
+  "name": "stepup-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "login": "bun run index.ts login",
+    "discover": "bun run index.ts discover",
+    "extract": "bun run index.ts extract",
+    "report": "bun run index.ts report"
+  },
+  "dependencies": {
+    "playwright-core": "^1.50.0"
+  }
+}
