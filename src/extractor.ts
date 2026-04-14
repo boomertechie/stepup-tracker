@@ -125,27 +125,36 @@ async function extractBalance(page: Page): Promise<BalanceSnapshot | null> {
 async function extractTransactions(page: Page, existingTransactions?: Transaction[]): Promise<Transaction[]> {
   await clickNav(page, "Reimbursements");
 
-  // Wait for the Radzen grid to render
   try {
     await page.waitForSelector("table.rz-grid-table", { timeout: 15000 });
   } catch {
     console.error("Reimbursement table did not load");
     return [];
   }
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(2000);
 
-  // Step 1: Extract basic table data from all pages
+  // Build lookup of existing data
+  const existingById = new Map<string, Transaction>();
+  if (existingTransactions) {
+    for (const t of existingTransactions) existingById.set(t.id, t);
+  }
+
+  // Single-pass: read table page → extract details for rows that need it → paginate → repeat
   const transactions: Transaction[] = [];
-  let pageNum = 1;
+  const txById = new Map<string, Transaction>();
+  let tablePageNum = 1;
 
   while (true) {
-    console.error(`Reading table page ${pageNum}...`);
+    console.error(`Table page ${tablePageNum}...`);
+
+    // Read all rows on current table page
     const rows = await page.locator("table.rz-grid-table tbody tr").all();
+    console.error(`  Found ${rows.length} rows`);
 
-    for (const row of rows) {
-      const cells = await row.locator("td").allTextContents();
+    const pageTransactions: Transaction[] = [];
+    for (let r = 0; r < rows.length; r++) {
+      const cells = await rows[r].locator("td").allTextContents();
       if (cells.length < 8) continue;
-
       const id = cells[1]?.trim();
       if (!id) continue;
 
@@ -161,69 +170,83 @@ async function extractTransactions(page: Page, existingTransactions?: Transactio
         student: cells[5]?.trim() || "",
         extracted_at: new Date().toISOString(),
       };
-      transactions.push(tx);
+      pageTransactions.push(tx);
+      txById.set(tx.id, tx);
     }
 
+    transactions.push(...pageTransactions);
+    console.error(`  Parsed ${pageTransactions.length} transactions`);
+
+    // Determine which rows on THIS page need detail extraction
+    const needsIds = new Set<string>();
+    for (const t of pageTransactions) {
+      if (needsDetailRefresh(t, existingById.get(t.id))) {
+        needsIds.add(t.id.replace("ema-", ""));
+      }
+    }
+
+    if (needsIds.size > 0) {
+      console.error(`  Extracting details for ${needsIds.size} (skipping ${pageTransactions.length - needsIds.size} finalized)...`);
+      let extracted = 0;
+
+      while (needsIds.size > 0) {
+        // Re-scan current table rows after each Detail/Back cycle
+        const currentRows = await page.locator("table.rz-grid-table tbody tr").all();
+        let foundOne = false;
+
+        for (const row of currentRows) {
+          const cells = await row.locator("td").allTextContents();
+          const rowId = cells[1]?.trim();
+          if (!rowId || !needsIds.has(rowId)) continue;
+
+          const detailBtn = row.locator("text=Details").first();
+          if (!await detailBtn.isVisible().catch(() => false)) continue;
+
+          extracted++;
+          console.error(`    [${extracted}] Details for #${rowId}...`);
+          await detailBtn.click();
+          await page.waitForTimeout(2000);
+
+          const tx = txById.get(`ema-${rowId}`);
+          if (tx) {
+            tx.detail_url = page.url();
+            tx.line_items = await extractLineItems(page);
+            tx.has_denials = tx.line_items.some((li) => li.approval_status === "Denied");
+            tx.details_extracted = true;
+          }
+
+          needsIds.delete(rowId);
+
+          // Navigate back to table
+          await page.locator(".reimbursement-back-button").click();
+          await page.waitForSelector("table.rz-grid-table", { timeout: 10000 });
+          await page.waitForTimeout(1500);
+          foundOne = true;
+          break; // Re-scan from scratch
+        }
+
+        if (!foundOne) {
+          console.error(`    ${needsIds.size} rows not found after re-scan, moving on`);
+          break;
+        }
+      }
+    } else {
+      console.error(`  All ${pageTransactions.length} finalized, no details needed`);
+    }
+
+    // Check for next table page
     const nextBtn = page.locator(".rz-paginator button.rz-paginator-next, button[aria-label='Next']").first();
     const nextDisabled = await nextBtn.isDisabled().catch(() => true);
     const nextVisible = await nextBtn.isVisible().catch(() => false);
     if (!nextVisible || nextDisabled) break;
 
+    console.error(`  Advancing to table page ${tablePageNum + 1}...`);
     await nextBtn.click();
     await page.waitForTimeout(2000);
-    pageNum++;
+    tablePageNum++;
   }
 
-  // Step 2: Click into each non-Draft transaction for detail extraction
-  // Navigate back to page 1 if we paginated
-  if (pageNum > 1) {
-    await clickNav(page, "Reimbursements");
-    await page.waitForSelector("table.rz-grid-table", { timeout: 15000 });
-    await page.waitForTimeout(1000);
-  }
-
-  // Build lookup of existing data to determine what needs detail refresh
-  const existingById = new Map<string, Transaction>();
-  if (existingTransactions) {
-    for (const t of existingTransactions) existingById.set(t.id, t);
-  }
-
-  const needsDetails = transactions.filter((t) => needsDetailRefresh(t, existingById.get(t.id)));
-  const skipped = transactions.length - needsDetails.length;
-  if (skipped > 0) console.error(`Skipping ${skipped} transactions with finalized details`);
-  console.error(`Extracting details for ${needsDetails.length} transactions...`);
-
-  for (let i = 0; i < needsDetails.length; i++) {
-    const tx = needsDetails[i];
-    const numericId = tx.id.replace("ema-", "");
-
-    // Find and click the Details button for this transaction
-    const detailBtn = page.locator(`table.rz-grid-table tbody tr`)
-      .filter({ hasText: numericId })
-      .locator("text=Details")
-      .first();
-
-    if (!await detailBtn.isVisible().catch(() => false)) {
-      // Might be on a different page of the grid — skip for now
-      continue;
-    }
-
-    console.error(`  [${i + 1}/${needsDetails.length}] Details for #${numericId}...`);
-    await detailBtn.click();
-    await page.waitForTimeout(2000);
-
-    // Extract detail data
-    tx.detail_url = page.url();
-    tx.line_items = await extractLineItems(page);
-    tx.has_denials = tx.line_items.some((li) => li.approval_status === "Denied");
-    tx.details_extracted = true;
-
-    // Navigate back to the reimbursements list
-    await page.locator(".reimbursement-back-button").click();
-    await page.waitForSelector("table.rz-grid-table", { timeout: 10000 });
-    await page.waitForTimeout(1000);
-  }
-
+  console.error(`Total: ${transactions.length} transactions across ${tablePageNum} page(s)`);
   return transactions;
 }
 
@@ -255,6 +278,8 @@ async function extractLineItems(page: Page): Promise<LineItem[]> {
       approval_status: approvalStatus,
       denial_reason: "",
       invoice_number: "",
+      educational_benefit: "",
+      item_url: "",
     };
 
     items.push(item);
@@ -283,31 +308,52 @@ async function extractLineItems(page: Page): Promise<LineItem[]> {
       case "Cost per Item/Service": item.cost = parseAmount(value); break;
       case "Tax, Shipping, etc.": item.tax_shipping = parseAmount(value); break;
       case "Who did you pay?": item.vendor = value; break;
+      case "Item/Service URL": item.item_url = value === "-" ? "" : value; break;
+      case "How will this item/service help your student learn?": item.educational_benefit = value; break;
     }
   }
 
-  // Extract denial reasons from page text
-  // Format: "Reason for Denial: <short reason>Comments: <full explanation>...PURCHASE N"
-  const bodyText = await page.locator("body").textContent().catch(() => "") || "";
-  const denialPattern = /Reason for Denial:\s*(.+?)(?=PURCHASE \d|APPEAL(?=PURCHASE)|$)/gi;
-  let match;
-  let denialIndex = 0;
-  while ((match = denialPattern.exec(bodyText)) !== null) {
-    let raw = match[1].trim();
-    // Split into short reason and full comment
-    const commentIdx = raw.indexOf("Comments:");
-    let reason: string;
-    if (commentIdx !== -1) {
-      const shortReason = raw.substring(0, commentIdx).trim();
-      const comment = raw.substring(commentIdx + "Comments:".length).trim();
-      reason = `${shortReason} — ${comment}`;
-    } else {
-      reason = raw;
+  // Extract denial reasons via DOM — find all "Reason for Denial:" labels and grab adjacent text
+  const denialLabels = await page.locator("p.font-weight-bold, strong, b, span").filter({ hasText: "Reason for Denial" }).all();
+  console.error(`    Found ${denialLabels.length} denial reason label(s)`);
+
+  const reasons: string[] = [];
+  for (const label of denialLabels) {
+    // Get the parent container's full text — the reason + comments follow the label
+    const parent = label.locator("..");
+    const parentText = (await parent.textContent().catch(() => ""))?.trim() || "";
+    // Strip the label itself
+    let reason = parentText.replace(/Reason for Denial:\s*/i, "").trim();
+    // Also try: the next sibling element
+    if (!reason || reason.length < 3) {
+      const nextText = await label.evaluate((el) => {
+        let node = el.nextSibling;
+        let text = "";
+        while (node) {
+          text += node.textContent || "";
+          node = node.nextSibling;
+        }
+        return text;
+      }).catch(() => "");
+      if (nextText?.trim()) reason = nextText.trim();
     }
-    // Clean up any trailing "APPEAL" text
-    reason = reason.replace(/\s*APPEAL\s*$/, "").trim();
-    if (!reason) continue;
-    // Find the next denied item
+    // Split "Not an approved expenseComments: ..." into structured reason
+    const commentIdx = reason.indexOf("Comments:");
+    if (commentIdx !== -1) {
+      const shortReason = reason.substring(0, commentIdx).trim();
+      const comment = reason.substring(commentIdx + "Comments:".length).trim();
+      reason = `${shortReason} — ${comment}`;
+    }
+    reason = reason.replace(/\s*APPEAL\s*$/, "").replace(/\s*PURCHASE \d.*$/s, "").trim();
+    if (reason) {
+      console.error(`    Denial reason: "${reason.substring(0, 80)}..."`);
+      reasons.push(reason);
+    }
+  }
+
+  // Assign reasons to denied items in order
+  let denialIndex = 0;
+  for (const reason of reasons) {
     while (denialIndex < items.length && items[denialIndex].approval_status !== "Denied") {
       denialIndex++;
     }

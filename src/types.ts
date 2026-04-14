@@ -11,6 +11,8 @@ export interface LineItem {
   approval_status: string;
   denial_reason: string;
   invoice_number: string;
+  educational_benefit: string;
+  item_url: string;
   // Status tracking
   status_changed_at?: string;
   previous_status?: string;

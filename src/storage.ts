@@ -49,8 +49,11 @@ export function mergeTransactions(
       const amountChanged = prev.amount !== t.amount;
       const hasNewDetails = t.details_extracted && !prev.details_extracted;
       const lineItemStatusChanged = hasLineItemStatusChanges(prev, t);
+      const hasNewDenialReasons = t.details_extracted && t.line_items?.some(
+        (li, i) => li.denial_reason && !prev.line_items?.[i]?.denial_reason
+      );
 
-      if (statusChanged || amountChanged || hasNewDetails || lineItemStatusChanged) {
+      if (statusChanged || amountChanged || hasNewDetails || lineItemStatusChanged || hasNewDenialReasons) {
         const merged = { ...prev, ...t, extracted_at: now };
 
         // Track transaction-level status change
