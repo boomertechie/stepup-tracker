@@ -10,13 +10,18 @@ export interface DisputeRecord {
   created_at: string;
   status: "open" | "appealed" | "resolved_won" | "resolved_lost" | "withdrawn";
 
-  // The denied item
-  item_description: string;
-  item_category: string;
-  item_type: string;
+  // The denied item (from portal — may not match actual purchase)
+  item_description: string;       // Portal dropdown selection (e.g., "Lunchboxes")
+  item_category: string;          // Portal category (e.g., "Instructional Material")
+  item_type: string;              // Portal type (e.g., "School Supplies")
   item_vendor: string;
   item_amount: number;
   purchase_date: string;
+
+  // Parent annotations (manual — needed for precise arguments)
+  actual_item: string;            // What was actually purchased (e.g., "mixing bowls")
+  educational_purpose: string;    // How the student uses it (e.g., "home economics coursework")
+  category_rationale: string;     // Why this portal category was selected (e.g., "closest available option")
 
   // Their stated reason
   denial_reason: string;
@@ -349,6 +354,9 @@ function analyzeItem(tx: Transaction, li: LineItem): DisputeRecord {
     item_vendor: li.vendor,
     item_amount: itemAmount,
     purchase_date: li.purchase_date,
+    actual_item: "",              // Fill in manually: what was actually purchased
+    educational_purpose: "",      // Fill in manually: how the student uses it
+    category_rationale: "",       // Fill in manually: why this portal category was chosen
     denial_reason: li.denial_reason,
     classification,
     documentation_evidence: evidence,

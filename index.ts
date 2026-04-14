@@ -212,9 +212,12 @@ async function main() {
       for (const d of disputes) {
         const existing = byId.get(d.id);
         if (existing) {
-          // Preserve status and notes from existing, update analysis
+          // Preserve manual annotations and status from existing record
           d.status = existing.status;
           d.notes = existing.notes;
+          d.actual_item = existing.actual_item || d.actual_item;
+          d.educational_purpose = existing.educational_purpose || d.educational_purpose;
+          d.category_rationale = existing.category_rationale || d.category_rationale;
         }
         byId.set(d.id, d);
       }
