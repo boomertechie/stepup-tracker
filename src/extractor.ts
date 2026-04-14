@@ -226,7 +226,27 @@ async function extractTransactions(page: Page, existingTransactions?: Transactio
         }
 
         if (!foundOne) {
-          console.error(`    ${needsIds.size} rows not found after re-scan, moving on`);
+          // Debug: show what IDs are actually in the table vs what we're looking for
+          const visibleIds: string[] = [];
+          for (const row of currentRows) {
+            const cells = await row.locator("td").allTextContents();
+            const rid = cells[1]?.trim();
+            if (rid) visibleIds.push(rid);
+          }
+          console.error(`    Table has ${visibleIds.length} rows. Looking for: ${[...needsIds].join(", ")}`);
+          console.error(`    First 5 visible IDs: ${visibleIds.slice(0, 5).join(", ")}`);
+          console.error(`    URL: ${page.url()}`);
+
+          // If we're no longer on the Reimbursement page, try navigating back
+          if (!page.url().includes("/Reimbursement")) {
+            console.error(`    Not on Reimbursement page — navigating back...`);
+            await clickNav(page, "Reimbursements");
+            await page.waitForSelector("table.rz-grid-table", { timeout: 15000 });
+            await page.waitForTimeout(2000);
+            continue; // Retry the re-scan
+          }
+
+          console.error(`    ${needsIds.size} rows not found, moving on`);
           break;
         }
       }

@@ -39,6 +39,7 @@ import {
   exportMarkdown,
 } from "./src/report";
 import { startServer } from "./src/web";
+import { analyzeDenials, printDisputeReport, loadDisputes, saveDisputes } from "./src/disputes";
 import { findChrome } from "./src/chrome";
 import type { TrackerConfig } from "./src/types";
 
@@ -189,6 +190,40 @@ async function main() {
       const txStore = loadTransactions(txPath);
       const balStore = loadBalances(balPath);
       reportDashboard(txStore, balStore);
+      break;
+    }
+
+    case "disputes": {
+      const txStore = loadTransactions(txPath);
+      const disputePath = resolve(config.data_dir, "disputes.json");
+      const disputes = analyzeDenials(txStore);
+
+      if (disputes.length === 0) {
+        console.log("No denied items to analyze.");
+        break;
+      }
+
+      printDisputeReport(disputes);
+
+      // Save dispute records
+      const store = loadDisputes(disputePath);
+      // Merge: update existing, add new
+      const byId = new Map(store.disputes.map(d => [d.id, d]));
+      for (const d of disputes) {
+        const existing = byId.get(d.id);
+        if (existing) {
+          // Preserve status and notes from existing, update analysis
+          d.status = existing.status;
+          d.notes = existing.notes;
+        }
+        byId.set(d.id, d);
+      }
+      saveDisputes(disputePath, {
+        version: 1,
+        last_analyzed: new Date().toISOString(),
+        disputes: Array.from(byId.values()),
+      });
+      console.log(`Dispute records saved to ${disputePath}`);
       break;
     }
 
